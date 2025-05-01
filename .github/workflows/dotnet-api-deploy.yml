@@ -1,0 +1,96 @@
+name: Build & Deploy API
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      image_name:
+        required: true
+        type: string
+      dockerfile:
+        required: false
+        type: string
+        default: Dockerfile
+      container_port:
+        required: false
+        type: number
+        default: 8080
+      host_port:
+        required: false
+        type: number
+        default: 190
+    secrets:
+      SSH_HOST:
+        required: true
+      SSH_PORT:
+        required: true
+      SSH_USERNAME:
+        required: true
+      SSH_KEY:
+        required: true
+      POSTGRES_HOST:
+        required: true
+      POSTGRES_PORT:
+        required: true
+      POSTGRES_USER:
+        required: true
+      POSTGRES_PASS:
+        required: true
+      REDIS_PASS:
+        required: true
+      NEW_RELIC_LICENSE_KEY:
+        required: true
+
+jobs:
+  build:
+    name: Build Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        run: docker build . --file ${{ inputs.dockerfile }} --tag ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${{ inputs.environment }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Image
+        run: docker push ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${{ inputs.environment }}
+
+  deploy:
+    needs: build
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: SSH and Deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            docker network create myNetwork --subnet=172.20.0.0/24 --gateway=172.20.0.1 || true
+            docker pull ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${{ inputs.environment }}
+            docker kill ${{ inputs.image_name }} || true
+            docker rm ${{ inputs.image_name }} || true
+            docker run \
+              --name ${{ inputs.image_name }} -d \
+              --network myNetwork \
+              -p ${{ inputs.host_port }}:${{ inputs.container_port }} \
+              --restart always \
+              -e ASPNETCORE_ENVIRONMENT="${{ inputs.environment }}" \
+              -e NEW_RELIC_LICENSE_KEY="${{ secrets.NEW_RELIC_LICENSE_KEY }}" \
+              -e NEW_RELIC_APP_NAME="${{ inputs.image_name }}" \
+              -e REDIS_PASS="${{ secrets.REDIS_PASS }}" \
+              -e ConnectionStrings__DefaultConnection="Server=${{ secrets.POSTGRES_HOST }};Port=${{ secrets.POSTGRES_PORT }};Database=Binge;Username=${{ secrets.POSTGRES_USER }};Password=${{ secrets.POSTGRES_PASS }};" \
+              ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${{ inputs.environment }}

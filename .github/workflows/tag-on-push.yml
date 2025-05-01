@@ -1,0 +1,42 @@
+name: Auto Tag on Main Push
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Fetch tags
+        run: git fetch --tags
+
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          latest=$(git tag --sort=-version:refname | head -n 1)
+          echo "latest=$latest" >> $GITHUB_OUTPUT
+
+      - name: Bump version and tag
+        run: |
+          latest=${{ steps.get_tag.outputs.latest }}
+          echo "Latest tag: $latest"
+
+          if [[ "$latest" =~ ^v([0-9]+)$ ]]; then
+            next=$(( ${BASH_REMATCH[1]} + 1 ))
+            new_tag="v$next"
+          else
+            new_tag="v1"
+          fi
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git tag $new_tag
+          git push origin $new_tag
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
