@@ -91,8 +91,13 @@ jobs:
             docker network create myNetwork --subnet=172.20.0.0/24 --gateway=172.20.0.1 || true
 
             docker pull ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${{ inputs.environment }}
-            docker kill ${{ inputs.image_name }} || true
-            docker rm ${{ inputs.image_name }} || true
+
+            if [ "$(docker ps -aq -f name=^/${{ inputs.image_name }}$)" ]; then
+              echo "Removing existing container ${{ inputs.image_name }}"
+              docker rm -f ${{ inputs.image_name }}
+            else
+              echo "No container named ${{ inputs.image_name }} found"
+            fi
 
             PORT_MAPPING=""
             if [ -n "${{ inputs.host_port }}" ]; then
