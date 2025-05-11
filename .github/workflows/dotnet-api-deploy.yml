@@ -115,6 +115,14 @@ jobs:
               DB_CONNECTION_STRING="-e ConnectionStrings__DefaultConnection=\"Server=${{ secrets.POSTGRES_HOST }};Port=${{ secrets.POSTGRES_PORT }};Database=${{ inputs.database_name }};Username=${{ secrets.POSTGRES_USER }};Password=${{ secrets.POSTGRES_PASS }};\""
             fi
 
+            ADDITIONAL_ENV_VARS=""
+            if [ -n "${{ inputs.additional_env_vars }}" ]; then
+              IFS=',' read -ra VARS <<< "${{ inputs.additional_env_vars }}"
+              for VAR in "${VARS[@]}"; do
+                ADDITIONAL_ENV_VARS="$ADDITIONAL_ENV_VARS -e $VAR"
+              done
+            fi
+
             docker run \
               --name ${{ inputs.image_name }} -d \
               --network myNetwork \
@@ -125,4 +133,5 @@ jobs:
               -e NEW_RELIC_APP_NAME="${{ inputs.new_relic_app_name || format('{0} - {1}', inputs.image_name, inputs.environment) }}" \
               -e REDIS_PASS="${{ secrets.REDIS_PASS }}" \
               $DB_CONNECTION_STRING \
+              $ADDITIONAL_ENV_VARS \
               ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${{ inputs.environment }}
